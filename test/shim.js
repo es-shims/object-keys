@@ -54,6 +54,14 @@ test('exports a "shim" function', function (t) {
 		st.end();
 	});
 
+	t.test('when Object.keys works correctly with arguments', function (st) {
+		st.teardown(preserve(Object, 'keys'));
+
+		var shimmedKeys = keysShim.shim();
+		st.equal(shimmedKeys, Object.keys, 'returns Object.keys when it already works');
+		st.end();
+	});
+
 	t.test('when Object.keys is not present', { skip: Object.keys }, function (st) {
 		st.teardown(preserve(Object, 'keys'));
 
@@ -63,6 +71,50 @@ test('exports a "shim" function', function (t) {
 		st.equal(Object.keys, keysShim, 'Object.keys is overridden');
 		st.equal(shimmedKeys, keysShim, 'shim is returned');
 
+		st.end();
+	});
+
+	t.test('when Object.keys is manually removed', function (st) {
+		st.teardown(preserve(Object, 'keys'));
+
+		var savedKeys = Object.keys;
+		delete Object.keys;
+		reRequire();
+
+		st.notOk(Object.keys, 'Object.keys has been removed');
+		var shimmedKeys = keysShim.shim();
+
+		st.equal(typeof Object.keys, 'function', 'Object.keys is restored as a function');
+		st.equal(shimmedKeys, Object.keys, 'shim is returned');
+
+		Object.keys = savedKeys;
+		reRequire();
+		st.end();
+	});
+
+	t.test('when Object.keys assignment is no-op', function (st) {
+		st.teardown(preserve(Object, 'keys'));
+
+		var savedKeys = Object.keys;
+		// Make Object.keys a no-op setter so assignment silently fails
+		Object.defineProperty(Object, 'keys', {
+			get: function () { return void undefined; },
+			set: function () { /* no-op */ },
+			configurable: true
+		});
+		reRequire();
+
+		st.notOk(Object.keys, 'Object.keys is falsy');
+		var shimmedKeys = keysShim.shim();
+
+		st.equal(typeof shimmedKeys, 'function', 'shim returns a function');
+
+		Object.defineProperty(Object, 'keys', {
+			value: savedKeys,
+			writable: true,
+			configurable: true
+		});
+		reRequire();
 		st.end();
 	});
 
@@ -82,6 +134,7 @@ test('exports a "shim" function', function (t) {
 		st.notEqual(fakeKeys, shimmedKeys, 'Object.keys is not original fake value');
 		st.equal(Object.keys, shimmedKeys, 'Object.keys is overridden');
 		st.deepEqual(Object.keys(arguments), ['0'], 'Object.keys now works with arguments');
+		st.deepEqual(Object.keys({ a: 1 }), ['a'], 'Object.keys still works with regular objects after arguments bug fix');
 		st.end();
 	});
 
