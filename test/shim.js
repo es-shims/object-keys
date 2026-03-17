@@ -3,6 +3,7 @@
 'use strict';
 
 var test = require('tape');
+var mockProperty = require('mock-property');
 var is = require('is');
 var keysShim;
 var reRequire = function reRequireImplementation() {
@@ -28,13 +29,12 @@ var obj = {
 var objKeys = ['aNull', 'arr', 'bool', 'num', 'obj', 'str', 'undef'];
 
 var returnEmptyArray = function () { return []; };
-var preserve = function preserveProperty(object, property) {
+var preserve = function preserveProperty(object, property, mockOptions) {
+	var opts = arguments.length > 2 ? mockOptions : { value: object[property] };
 	reRequire();
-	var original = object[property];
+	var restore = mockProperty(object, property, opts);
 	return function restorePreserved() {
-		// eslint-disable-next-line no-param-reassign
-		object[property] = original;
-		if (object[property] !== original) { throw new EvalError('should never happen'); }
+		restore();
 		reRequire();
 	};
 };
@@ -43,9 +43,8 @@ test('exports a "shim" function', function (t) {
 	t.equal(typeof keysShim.shim, 'function', 'keysShim.shim is a function');
 
 	t.test('when Object.keys is present', function (st) {
-		st.teardown(preserve(Object, 'keys'));
+		st.teardown(preserve(Object, 'keys', { value: returnEmptyArray }));
 
-		Object.keys = returnEmptyArray;
 		st.equal(Object.keys, returnEmptyArray, 'Object.keys has been replaced');
 		var shimmedKeys = keysShim.shim();
 		st.notEqual(Object.keys, keysShim, 'Object.keys is not overridden to the shim');
@@ -75,11 +74,7 @@ test('exports a "shim" function', function (t) {
 	});
 
 	t.test('when Object.keys is manually removed', function (st) {
-		st.teardown(preserve(Object, 'keys'));
-
-		var savedKeys = Object.keys;
-		delete Object.keys;
-		reRequire();
+		st.teardown(preserve(Object, 'keys', { 'delete': true }));
 
 		st.notOk(Object.keys, 'Object.keys has been removed');
 		var shimmedKeys = keysShim.shim();
@@ -87,34 +82,22 @@ test('exports a "shim" function', function (t) {
 		st.equal(typeof Object.keys, 'function', 'Object.keys is restored as a function');
 		st.equal(shimmedKeys, Object.keys, 'shim is returned');
 
-		Object.keys = savedKeys;
-		reRequire();
 		st.end();
 	});
 
 	t.test('when Object.keys assignment is no-op', function (st) {
-		st.teardown(preserve(Object, 'keys'));
-
-		var savedKeys = Object.keys;
 		// Make Object.keys a no-op setter so assignment silently fails
-		Object.defineProperty(Object, 'keys', {
+		st.teardown(preserve(Object, 'keys', {
 			get: function () { return void undefined; },
 			set: function () { /* no-op */ },
 			configurable: true
-		});
-		reRequire();
+		}));
 
 		st.notOk(Object.keys, 'Object.keys is falsy');
 		var shimmedKeys = keysShim.shim();
 
 		st.equal(typeof shimmedKeys, 'function', 'shim returns a function');
 
-		Object.defineProperty(Object, 'keys', {
-			value: savedKeys,
-			writable: true,
-			configurable: true
-		});
-		reRequire();
 		st.end();
 	});
 
@@ -128,7 +111,8 @@ test('exports a "shim" function', function (t) {
 			if (is.args(object)) { return []; }
 			return originalObjectKeys(object);
 		};
-		Object.keys = fakeKeys;
+		st.teardown(preserve(Object, 'keys', { value: fakeKeys }));
+
 		st.deepEqual(Object.keys(arguments), [], 'Object.keys has arguments bug');
 		var shimmedKeys = keysShim.shim();
 		st.notEqual(fakeKeys, shimmedKeys, 'Object.keys is not original fake value');
